@@ -46,8 +46,9 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 bundle_repo() { # url ref outfile clonedir
   echo "==> bundling $1 @ $2"
-  git clone --mirror "$1" "$4" >/dev/null 2>&1
+  git clone --mirror "$1" "$4" >/dev/null
   git -C "$4" rev-parse --verify "$2" >/dev/null || { echo "ref $2 not found in $1" >&2; exit 1; }
+  git -C "$4" for-each-ref --format '%(refname)' 'refs/pull/**' | while read -r r; do git -C "$4" update-ref -d "$r"; done
   git -C "$4" bundle create "$3" --all >/dev/null
   git bundle verify "$3" >/dev/null
   echo "    $(basename "$3"): $(git -C "$4" rev-parse "$2") ($2)"
@@ -66,11 +67,8 @@ done
 if [ "$WINDOWS" = 1 ]; then
   echo "==> assembling windows toolchain kit"
   mkdir -p "$OUT/windows"
-  GVM=$(sed -n 's/^ARG GRAALVM_VERSION=//p' "$WORK/lib.checkout/Dockerfile.builder" 2>/dev/null || true)
-  if [ -z "$GVM" ]; then
-    git -C "$WORK/lib" show "$LIB_REF:Dockerfile.builder" > "$WORK/Dockerfile.builder"
-    GVM=$(sed -n 's/^ARG GRAALVM_VERSION=//p' "$WORK/Dockerfile.builder")
-  fi
+  git -C "$WORK/lib" show "$LIB_REF:Dockerfile.builder" > "$WORK/Dockerfile.builder"
+  GVM=$(sed -n 's/^ARG GRAALVM_VERSION=//p' "$WORK/Dockerfile.builder")
   [ -n "$GVM" ] || { echo "cannot determine GRAALVM_VERSION" >&2; exit 1; }
   curl -fsSL -o "$OUT/windows/graalvm-community-jdk-${GVM}_windows-x64_bin.zip" \
     "https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-${GVM}/graalvm-community-jdk-${GVM}_windows-x64_bin.zip"

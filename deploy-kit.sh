@@ -35,9 +35,10 @@ CURL_OPTS="-sf"; GIT_TLS=""; ENGINE_TLS=""
 
 if [ "$ENGINE" = auto ]; then
   if command -v podman >/dev/null 2>&1; then ENGINE=podman
-  elif command -v docker >/dev/null 2>&1; then ENGINE=docker; ENGINE_TLS=""
+  elif command -v docker >/dev/null 2>&1; then ENGINE=docker
   else [ "$SKIP_IMAGES" = 1 ] || { echo "need podman/docker (or --skip-images)" >&2; exit 1; }; fi
 fi
+[ "$ENGINE" = docker ] && ENGINE_TLS=""
 
 api() { # method path [curl -d args...]
   M="$1"; P="$2"; shift 2
@@ -77,9 +78,15 @@ echo "    library=$LIB_ID template=$TMPL_ID"
 echo "==> pushing mirrors from bundles"
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 git clone --mirror exi-lib.bundle "$W/lib" >/dev/null 2>&1
-git -C "$W/lib" $GIT_TLS push --mirror "https://oauth2:$TOKEN@$HOST/$GROUP/exificient-native-image.git" 2>&1 | tail -1
+if ! git -C "$W/lib" $GIT_TLS push --mirror "https://oauth2:$TOKEN@$HOST/$GROUP/exificient-native-image.git" > "$W/push-lib.log" 2>&1; then
+  echo "ERROR: library mirror push failed:" >&2; tail -5 "$W/push-lib.log" >&2; exit 1
+fi
+tail -1 "$W/push-lib.log"
 git clone --mirror exi-template.bundle "$W/tmpl" >/dev/null 2>&1
-git -C "$W/tmpl" $GIT_TLS push --mirror "https://oauth2:$TOKEN@$HOST/$GROUP/exi-bake-template.git" 2>&1 | tail -1
+if ! git -C "$W/tmpl" $GIT_TLS push --mirror "https://oauth2:$TOKEN@$HOST/$GROUP/exi-bake-template.git" > "$W/push-tmpl.log" 2>&1; then
+  echo "ERROR: template mirror push failed:" >&2; tail -5 "$W/push-tmpl.log" >&2; exit 1
+fi
+tail -1 "$W/push-tmpl.log"
 
 IMG_AMD64="" IMG_ARM64=""
 if [ "$SKIP_IMAGES" = 0 ]; then
@@ -138,4 +145,6 @@ if [ "$TRIGGER" = 1 ]; then
     done
   done
 fi
-echo "==> deploy complete. Consumers: conan remote add <name> $GITLAB/api/v4/projects/<id>/packages/conan --insecure"
+HINT="conan remote add <name> $GITLAB/api/v4/projects/<id>/packages/conan"
+[ "$INSECURE" = 1 ] && HINT="$HINT --insecure"
+echo "==> deploy complete. Consumers: $HINT"
