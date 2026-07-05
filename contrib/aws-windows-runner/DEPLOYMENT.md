@@ -14,6 +14,22 @@ AMI snapshot only (~$1.50/month); each bake costs a few cents of spot time.
 
 **Time budget:** ~2 hours, most of it waiting for the AMI bake.
 
+**Choose your path first:**
+
+- **Path A — AWS scale-from-zero fleet** (this page, Steps 1–7): no
+  standing Windows machine; an instance exists only while a bake runs.
+  Worth the setup when you have AWS and bake rarely.
+- **Path B — a static Windows machine you already have** (VM or physical,
+  no AWS): see [the appendix at the bottom](#path-b--static-windows-machine-no-aws).
+  Dramatically simpler — no IAM, no ASG, no SSH connector, and job
+  artifacts work too. If you have any always-on Windows box to spare,
+  start there.
+
+Both paths end at the same place: a runner tagged `win-amd64` that the
+template's manual `bake-windows` job routes to, producing a Windows Conan
+package in your project registry. Steps 6–7 (project variables, running
+the job) are identical for both.
+
 ---
 
 ## Prerequisites
@@ -246,3 +262,103 @@ aws iam delete-user --user-name gitlab-win64-runner
 
 Plus remove the `[[runners]]` block from the manager's `config.toml`
 (restart) and delete the runner in the GitLab UI.
+
+---
+
+## Path B — static Windows machine (no AWS)
+
+Use this when you have an internal Windows box (VM or physical) instead
+of AWS. gitlab-runner runs **on the Windows machine itself** as a shell
+executor — there is no runner-manager host, no fleeting plugin, no SSH
+connector, and none of the failure modes those bring. The AWS-specific
+troubleshooting rows above don't apply; the TLS and tag-resolution rows
+still do.
+
+**Machine requirements:** Windows Server 2019/2022 or Windows 10/11
+x86_64, admin access, ~30 GB free disk, and network reach to your GitLab
+(plus the internet OR the air-gap kit for the toolchain).
+
+### B1 — provision the toolchain
+
+Install, as admin (same versions the Linux builder pins, so native-image
+behavior matches across OSes):
+
+| Tool | Version / source |
+|---|---|
+| GraalVM Community JDK | **21.0.2** (`graalvm-community-jdk-21.0.2_windows-x64_bin.zip`) — set `JAVA_HOME` to it and put `%JAVA_HOME%\bin` on `PATH` |
+| Apache Maven | 3.9.x — `bin` on `PATH` |
+| git | MinGit or Git for Windows, 64-bit, on `PATH` |
+| Python 3.12 + Conan | full installer (not the embeddable zip — that has no pip), then `pip install "conan>=2"` |
+| Visual Studio Build Tools | `Microsoft.VisualStudio.Workload.VCTools` workload (**check your organization's Visual Studio licensing first** — see the README's licensing note) |
+
+`ami-userdata.ps1` in this directory is the scripted version of this
+table (sections 2–7); on a static box you can run those sections by hand
+in an admin PowerShell — skip the OpenSSH sections (1, 8–9), which only
+exist for the AWS SSH connector.
+
+**Air-gapped?** The kit's `--windows` component ships GraalVM + Maven
+zips and a pre-warmed Maven repository; `bake-windows.ps1 -M2Repo <path>`
+then builds fully offline. MSVC Build Tools remains a site-provided
+prerequisite (its installer is not redistributable in the kit).
+
+Verify before moving on — all four must succeed in a *fresh* PowerShell:
+
+```powershell
+java -version        # must say GraalVM
+mvn -version
+git --version
+conan --version
+```
+
+### B2 — TLS trust (internal CA sites only)
+
+```powershell
+Import-Certificate -FilePath C:\path\to\your-root-ca.pem -CertStoreLocation Cert:\LocalMachine\Root
+```
+
+If your GitLab's public DNS is CDN-proxied and this box must reach the
+origin directly, pin it once (persistent — this replaces Path A's
+`pre_get_sources_script`):
+
+```powershell
+Add-Content -Path C:\Windows\System32\drivers\etc\hosts -Value "<origin-ip> <your-gitlab-host>"
+```
+
+### B3 — install and register gitlab-runner
+
+Create the runner in the GitLab UI exactly as in Step 4 above (tag
+`win-amd64`, untagged jobs off), then on the Windows box in an admin
+PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force -Path C:\gitlab-runner | Out-Null
+Invoke-WebRequest -Uri "https://gitlab-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-runner-windows-amd64.exe" -OutFile C:\gitlab-runner\gitlab-runner.exe
+cd C:\gitlab-runner
+.\gitlab-runner.exe register --non-interactive `
+    --url "https://<your-gitlab-host>" `
+    --token "glrt-..." `
+    --executor "shell" `
+    --shell "powershell"
+.\gitlab-runner.exe install
+.\gitlab-runner.exe start
+```
+
+(Air-gapped: carry `gitlab-runner-windows-amd64.exe` in on your media
+instead of the `Invoke-WebRequest`.)
+
+The runner should show **online** in GitLab. The shell is Windows
+PowerShell 5.1 — already accounted for; the library's `v1.0.0` (at
+`eeeb485` or later) carries the required 5.1 fixes.
+
+### B4 — run it
+
+Continue at **Step 6** (project variables) and **Step 7** (play the job)
+above — identical from here. Two Path-B differences, both pleasant: job
+*artifacts* upload works (the runner binary is on the box, so `bake-out/`
+attaches to the job), and there is no boot wait — jobs start in seconds.
+
+One operational note: builds run consecutively on one machine
+(`concurrent = 1` is the registered default — keep it; native-image is
+memory-hungry). Leftover state between jobs is possible with shell
+executors; the job checks out fresh and `bake-windows.ps1` stages into
+per-job directories, so this is cosmetic for this workload.
