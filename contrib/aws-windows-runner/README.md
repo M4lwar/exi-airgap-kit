@@ -12,10 +12,11 @@ trust anchor to add to the machine's certificate store, e.g. an internal CA
 or a reverse-proxy origin cert) is injected at bake time via `--pem-file` —
 it is never hardcoded into the scripts.
 
-**New deployment? Start with [DEPLOYMENT.md](DEPLOYMENT.md)** — a
-numbered end-to-end guide (AMI → IAM → ASG → runner → first green bake)
-with a troubleshooting table of real observed failure modes. This README
-is the reference behind it.
+**New deployment? Start with [DEPLOYMENT.md](DEPLOYMENT.md)** — the
+step-by-step guide for a static Windows machine (the recommended, simple
+setup). [DEPLOYMENT-AWS.md](DEPLOYMENT-AWS.md) covers the on-demand AWS
+fleet this directory's AMI tooling exists for. This README is the
+reference behind both.
 
 ## What it builds
 
@@ -66,7 +67,7 @@ Requires: AWS CLI v2 authenticated against the target account/region, `ssh`,
 
 **Idempotent / resumable.** Every phase checks existing AWS state (by Name
 tag, AMI name, key pair) before creating anything, so the script is safe to
-re-run. A single invocation does not block for the entire ~45-60 minute
+re-run. A single invocation does not block for the entire 45-60 minute
 bake — it polls in bounded windows internally and exits `2` ("still in
 progress, rerun me") if the AMI isn't ready yet by the time its window
 elapses, `0` with the AMI id on stdout once done, or `1` on a hard failure.
@@ -129,7 +130,7 @@ Further field notes:
   already-running fleeting plugin.
 - The IAM identity the manager uses needs `ec2:GetPasswordData` and
   `ec2:CreateTags` in addition to the usual autoscaling actions — missing
-  permissions surface as instances being killed ~8 s after launch in an
+  permissions surface as instances being killed 8 s after launch in an
   endless churn loop.
 - If the runner manager reaches GitLab through a different network path
   than the Windows instances do (e.g. edge vs pinned origin), the CA file
@@ -156,14 +157,6 @@ Further field notes:
 - The EC2 key pair (kept — meant to be reused by whatever consumes the
   resulting AMI, e.g. a launch template).
 - The AMI (and its backing EBS snapshot) — this is the actual deliverable.
-
-## Costs
-
-Rough order of magnitude (US regions, on-demand `m5.xlarge`, prices vary by
-region/time): builder instance ~$0.19/hr x ~1 hour wall clock = **~$0.20 for
-the one-off bake**, plus **~$1.50/month** ongoing for the AMI's 60 GB gp3
-EBS snapshot while it exists. No standing compute is created — the builder
-instance is terminated once the AMI is available.
 
 ## Licensing note (read before you bake)
 
