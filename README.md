@@ -89,6 +89,18 @@ registry/TLS/push-to-create contingencies, and the validation approach — lives
 in the library repo:
 [`docs/specs/2026-07-04-airgap-kit-design.md`](https://github.com/M4lwar/exificient-native-image/blob/master/docs/specs/2026-07-04-airgap-kit-design.md).
 
+## Validated
+
+This kit and `deploy-kit.sh` have been validated end-to-end against a live
+**GitLab CE 19.1** instance (a subgroup used to simulate an air-gapped
+target): repo mirroring, builder-image seeding into the target registry,
+CI/CD variable configuration, job-token allowlisting, and idempotent reruns
+of the whole deploy all completed successfully. One site prerequisite
+surfaced during validation and isn't something this tooling can fix for
+you: runner fleets must trust the target instance's container registry TLS
+certificate, or image pulls in the seeded pipelines fail — see
+`DEPLOY.md` §5.3 for the fallback.
+
 ## Built kits are never hosted here
 
 This repo ships the *tooling*, not built kits. A kit bundles multi-gigabyte
