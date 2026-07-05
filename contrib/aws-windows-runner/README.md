@@ -12,6 +12,11 @@ trust anchor to add to the machine's certificate store, e.g. an internal CA
 or a reverse-proxy origin cert) is injected at bake time via `--pem-file` —
 it is never hardcoded into the scripts.
 
+**New deployment? Start with [DEPLOYMENT.md](DEPLOYMENT.md)** — a
+numbered end-to-end guide (AMI → IAM → ASG → runner → first green bake)
+with a troubleshooting table of real observed failure modes. This README
+is the reference behind it.
+
 ## What it builds
 
 `build-ami.sh` launches a temporary "builder" EC2 Windows instance, waits
